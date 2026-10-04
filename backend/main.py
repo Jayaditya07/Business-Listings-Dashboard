@@ -1,20 +1,17 @@
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, Query
 from fastapi.middleware.cors import CORSMiddleware
 
 from sqlalchemy.orm import Session
-
 from sqlalchemy import func
 
 from database import Base, engine
-
 from dependencies import get_db
-
 from models import Listing
-
 from schemas import ListingCreate
 
 
 app = FastAPI()
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173"],
@@ -59,6 +56,78 @@ def create_listings(
     }
 
 
+# =========================================================
+# GET ALL LISTINGS
+# Search + City + Category + Source Filter + Pagination
+# =========================================================
+
+@app.get("/listings")
+def get_listings(
+    db: Session = Depends(get_db),
+    search: str = "",
+    city: str = "",
+    category: str = "",
+    source: str = "",
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100)
+):
+    query = db.query(Listing)
+
+    if search:
+        query = query.filter(
+            Listing.business_name.ilike(f"%{search}%")
+        )
+
+    if city:
+        query = query.filter(
+            Listing.city == city
+        )
+
+    if category:
+        query = query.filter(
+            Listing.category == category
+        )
+
+    if source:
+        query = query.filter(
+            Listing.source == source
+        )
+
+    total = query.count()
+
+    offset = (page - 1) * limit
+
+    listings = (
+        query
+        .order_by(Listing.id)
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+
+    return {
+        "total": total,
+        "page": page,
+        "limit": limit,
+        "data": [
+            {
+                "id": listing.id,
+                "business_name": listing.business_name,
+                "category": listing.category,
+                "city": listing.city,
+                "address": listing.address,
+                "phone": listing.phone,
+                "source": listing.source
+            }
+            for listing in listings
+        ]
+    }
+
+
+# =========================================================
+# CITY-WISE STATISTICS
+# =========================================================
+
 @app.get("/stats/city")
 def city_wise_count(db: Session = Depends(get_db)):
     results = (
@@ -78,6 +147,11 @@ def city_wise_count(db: Session = Depends(get_db)):
         for city, count in results
     ]
 
+
+# =========================================================
+# CATEGORY-WISE STATISTICS
+# =========================================================
+
 @app.get("/stats/category")
 def category_wise_count(db: Session = Depends(get_db)):
     results = (
@@ -96,6 +170,11 @@ def category_wise_count(db: Session = Depends(get_db)):
         }
         for category, count in results
     ]
+
+
+# =========================================================
+# SOURCE-WISE STATISTICS
+# =========================================================
 
 @app.get("/stats/source")
 def source_wise_count(db: Session = Depends(get_db)):
